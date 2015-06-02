@@ -1,0 +1,4 @@
+[package]
+name = "slicepar"
+version = "0.1.0"
+authors = ["Arnaud Spiwack <arnaud@spiwack.net>"]
