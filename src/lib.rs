@@ -1,29 +1,23 @@
 use std::collections::VecDeque;
 
 trait Queue<'a,A:?Sized> {
-    type Error;
     fn push (&mut self,x:&'a mut A);
-    fn pop (&mut self) -> Result<&'a mut A, Self::Error>;
+    fn pop (&mut self) -> Option<&'a mut A>;
 }
 
 fn iter_queue<'a,A:?Sized+'a,Q,F> (mut q:Q, f:F)
     where F:Fn(&mut FnMut(&'a mut A)->(),&'a mut A)->(),
           Q:Queue<'a,A> + 'a
 {
-    while let Ok(x) = q.pop() {
+    while let Some(x) = q.pop() {
         let mut yld = |x| q.push(x);
         f(&mut yld,x);
     }
 }
 
-struct VecQueueError;
-
 impl<'a,A:?Sized> Queue<'a,A> for VecDeque<&'a mut A> {
-    type Error = VecQueueError;
     fn push(&mut self,x:&'a mut A) { self.push_front(x); }
-    fn pop (&mut self) -> Result<&'a mut A, Self::Error> {
-        self.pop_back().ok_or(VecQueueError)
-    }
+    fn pop (&mut self) -> Option<&'a mut A> { self.pop_back() }
 }
 
 pub fn pool<'a,A:?Sized+'a,D> (o:&'a mut A,d:D) -> ()
