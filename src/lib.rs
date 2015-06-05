@@ -1,13 +1,10 @@
 use std::collections::VecDeque;
+mod queue;
+use queue::Queue;
 
-trait Queue<'a,A:?Sized> {
-    fn push (&mut self,x:&'a mut A);
-    fn pop (&mut self) -> Option<&'a mut A>;
-}
-
-fn iter_queue<'a,A:?Sized+'a,Q,F> (mut q:Q, f:F)
-    where F:Fn(&mut FnMut(&'a mut A)->(),&'a mut A)->(),
-          Q:Queue<'a,A> + 'a
+fn iter_queue<A,Q,F> (mut q:Q, f:F)
+    where F:Fn(&mut FnMut(A)->(),A)->(),
+          Q:Queue<A>
 {
     while let Some(x) = q.pop() {
         let mut yld = |x| q.push(x);
@@ -15,13 +12,8 @@ fn iter_queue<'a,A:?Sized+'a,Q,F> (mut q:Q, f:F)
     }
 }
 
-impl<'a,A:?Sized> Queue<'a,A> for VecDeque<&'a mut A> {
-    fn push(&mut self,x:&'a mut A) { self.push_front(x); }
-    fn pop (&mut self) -> Option<&'a mut A> { self.pop_back() }
-}
-
-pub fn pool<'a,A:?Sized+'a,D> (o:&'a mut A,d:D) -> ()
-    where D:Fn(&mut FnMut(&'a mut A)->(), &'a mut A) -> ()
+pub fn par<A,D> (o:A,d:D) -> ()
+    where D:Fn(&mut FnMut(A)->(), A) -> ()
 {
     let mut queue = VecDeque::new ();
     queue.push(o);
@@ -31,7 +23,7 @@ pub fn pool<'a,A:?Sized+'a,D> (o:&'a mut A,d:D) -> ()
 #[cfg(test)]
 mod tests {
 
-    use super::pool;
+    use super::par;
     use std::cmp::Ordering;
 
     trait SplitAround {
@@ -50,7 +42,7 @@ mod tests {
     fn quick_sort() {
 
         fn quick_sort<A> (c:&Fn(&A,&A)->Ordering, a:&mut [A]) {
-            pool(a, |yld,a| {
+            par(a, |yld,a| {
                 if a.len() <= 1 { return; }
                 let mut left=0;
                 let mut right=a.len()-1;
