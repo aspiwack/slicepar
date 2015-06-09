@@ -2,6 +2,9 @@ use std::collections::VecDeque;
 mod queue;
 use queue::Queue;
 mod pool;
+use pool::ThreadPool;
+
+// Sequential
 
 fn iter_queue<A,Q,F> (mut q:Q, f:F)
     where F:Fn(&mut FnMut(A)->(),A)->(),
@@ -13,7 +16,7 @@ fn iter_queue<A,Q,F> (mut q:Q, f:F)
     }
 }
 
-pub fn par<A,D> (o:A,d:D) -> ()
+pub fn seq<A,D> (o:A,d:D) -> ()
     where D:Fn(&mut FnMut(A)->(), A) -> ()
 {
     let mut queue = VecDeque::new ();
@@ -21,10 +24,35 @@ pub fn par<A,D> (o:A,d:D) -> ()
     iter_queue (queue,d);
 }
 
+
+// Concurrent
+
+fn rec_pool<A> (pool:&'static ThreadPool,s:A,d:&'static (Fn(&Fn(A)->(), A) -> ()+Sync)) -> ()
+    where A:Send+'static
+{
+    pool.execute(move || {
+        let yld = move |x| rec_pool(pool,x,d);
+        d (&yld , s)
+    })
+}
+
+
+// Constant because of lazyness
+const NTHREADS :usize = 4;
+
+pub fn par<A> (o:A,d:&'static (Fn(&Fn(A)->(), A) -> () + Sync)) -> ()
+    where A:Send+'static,
+{
+    let pool = ThreadPool::new(NTHREADS);
+    // Does not type check because of the `'static` constraint.
+    // rec_pool(&pool,o,d);
+    unimplemented!();
+}
+
 #[cfg(test)]
 mod tests {
 
-    use super::par;
+    use super::*;
     use std::cmp::Ordering;
 
     trait SplitAround {
@@ -40,10 +68,10 @@ mod tests {
     }
 
     #[test]
-    fn quick_sort() {
+    fn quick_sort_seq() {
 
         fn quick_sort<A> (c:&Fn(&A,&A)->Ordering, a:&mut [A]) {
-            par(a, |yld,a| {
+            seq(a, |yld,a| {
                 if a.len() <= 1 { return; }
                 let mut left=0;
                 let mut right=a.len()-1;

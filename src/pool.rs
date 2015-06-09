@@ -12,6 +12,7 @@ use std::sync::{Mutex,Condvar,Arc};
 use std::thread;
 use std::thread::JoinHandle;
 use queue::Queue;
+use std::collections::VecDeque;
 
 // To call boxed functions. I don't really understand why it works, I
 // just took it from the `threadpool` crate.
@@ -69,7 +70,11 @@ impl Counter {
 
 }
 
-pub type Job = Box<FnBox>;
+/// Requires a `'static` queue because `scoped` threads are not a
+/// stabilised feature yet. Until it is, the lifetime of a thread is
+/// unknown and it is not possible to promise to close the thread
+/// before a given lifetime scope ends.
+pub type Job = Box<FnBox+Send+'static>;
 
 struct AbsThreadPool<Q:Queue<Job>> {
     channel: Arc<Mutex<Q>>,
@@ -86,7 +91,7 @@ struct AbsThreadPool<Q:Queue<Job>> {
 impl<Q:Queue<Job>+Send+'static> AbsThreadPool<Q> {
     // potential improvement: having a min-size and a max-size to
     // allocate more threads when there are a lot of long tasks
-    pub fn new(nthreads:usize,q:Q) -> AbsThreadPool<Q> {
+    fn new(nthreads:usize,q:Q) -> AbsThreadPool<Q> {
         assert!(nthreads >= 1);
         let q = Arc::new(Mutex::new(q));
         let mut threads = Vec::new();
@@ -103,16 +108,19 @@ impl<Q:Queue<Job>+Send+'static> AbsThreadPool<Q> {
             idle_threads: counter,
             notify_job: notify,
         }
+
+        // There should be a way to kill the threads when the
+        // threadpool goes out of scope.
     }
 
-    pub fn execute<F>(&self, f:F) where F:FnOnce()->() + 'static {
+    fn execute<F>(&self, f:F) where F:FnOnce()->() + Send + 'static {
         let job = Box::new(f);
         let mut chan = self.channel.lock().ok().unwrap();
         chan.push(job);
         self.notify_job.notify_all();
     }
 
-    pub fn join(&self) {
+    fn join(&self) {
         let mut lock = self.channel.lock().ok().unwrap();
         loop {
             if lock.is_empty() && self.idle_threads.has_all_idle() {
@@ -153,4 +161,23 @@ fn spawn_in_pool<Q:Queue<Job>+Send+'static> (rcv:Arc<Mutex<Q>>,notify:Arc<Condva
            idle_threads.go_idle();
        };
     })
+}
+
+
+/// A joinable pool of threads.
+pub struct ThreadPool(AbsThreadPool<VecDeque<Job>>);
+
+impl ThreadPool {
+    pub fn new (nthreads:usize) -> ThreadPool {
+        let queue = VecDeque::with_capacity(nthreads);
+        ThreadPool(AbsThreadPool::new(nthreads,queue))
+    }
+
+    pub fn execute<F>(&self, f:F) where F:FnOnce()->() + Send + 'static {
+        self.0.execute(f);
+    }
+
+    pub fn join(&self) {
+        self.0.join();
+    }
 }
